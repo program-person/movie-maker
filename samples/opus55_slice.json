@@ -1,0 +1,48 @@
+{
+  "meta": {
+    "title": "Claude Opus 5.5 で何が変わった？",
+    "format": "vertical",
+    "voice": {"engine": "core", "style_id": 3, "speed": 1.25},
+    "credit": "出典：Anthropic公式発表（2026/9/22）",
+    "sources": [
+      {"label": "Anthropic公式発表 Introducing Claude Opus 5.5", "url": "https://www.anthropic.com/claude-opus-5-5"}
+    ]
+  },
+  "scenes": [
+    {
+      "type": "hook",
+      "title": ["Claude", "Opus 5.5"],
+      "lead": "上位モデル並みの性能で",
+      "big": "約40%安く",
+      "ask": {"text": "何が変わった？", "cue": 1},
+      "credit": "出典：Anthropic公式発表・各種報道",
+      "lines": [
+        {"text": "最新AIの Claude Opus 5.5、上位モデル並みの性能で、約4割安くなったのだ！",
+         "speak": "最新AIの、クロード・オーパス5.5、上位モデル並みの性能で、約4割、安くなったのだ！"},
+        {"text": "何が変わったのか、ずんだもんがまとめるのだ。",
+         "speak": "何が変わったのか、ずんだもんが、まとめるのだ。"}
+      ]
+    },
+    {
+      "type": "list",
+      "num": "07",
+      "title": "注意点",
+      "style": "warn",
+      "credit": "出典：Anthropic公式／Artificial Analysis（Wccftech経由）",
+      "items": [
+        {"main": "thinking モードは\nオフにできない", "note": "考えてから答えるモードのこと", "cue": 1},
+        {"main": "サイバーセキュリティ系の作業の\n多くは Opus 4.8 に振り替え", "note": "安全対策のため", "cue": 2},
+        {"main": "「トークン消費が多い」という\n第三者の指摘も", "note": "公式の「約40%安」とは測り方が違う可能性 → 要検証", "cue": 3}
+      ],
+      "lines": [
+        {"text": "ただし、注意点もあるのだ。", "speak": "ただし、注意点もあるのだ。"},
+        {"text": "考えてから答える thinking モードは、オフにできないのだ。",
+         "speak": "考えてから答える、シンキングモードは、オフにできないのだ。"},
+        {"text": "サイバーセキュリティ系の作業は、多くが、旧モデルの Opus 4.8 に、回されるのだ。",
+         "speak": "サイバーセキュリティ系の作業は、多くが、旧モデルの、オーパス4.8に、回されるのだ。"},
+        {"text": "トークンを多く使う、という第三者の指摘もあるから、実際のコストは要チェックなのだ。",
+         "speak": "トークンを多く使う、という第三者の指摘もあるから、実際のコストは、要チェックなのだ。"}
+      ]
+    }
+  ]
+}
