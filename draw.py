@@ -9,6 +9,9 @@ SUB = (170, 166, 155)
 ACC = (217, 119, 87)
 WARN = (230, 190, 90)
 CARD = (38, 37, 34)
+GRAY = (110, 108, 100)
+BLUE = (106, 155, 204)
+PALETTE = {"fg": FG, "sub": SUB, "acc": ACC, "warn": WARN, "gray": GRAY, "blue": BLUE}  # 台本の color 名 → RGB
 X0, X1 = 70, 940            # 右側は TikTok のボタン列を避ける
 
 FONT_B = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
@@ -70,6 +73,9 @@ def header(d, t, num, title):
     para(d, X0, 200, num, 36, ACC, a)
     para(d, X0, 248, title, 64, FG, a)
     d.rectangle([X0, 340, X0 + int(360 * a), 346], fill=ACC)
+
+def card(d, box, a):
+    d.rounded_rectangle(box, radius=24, fill=mix(CARD, a))
 
 def credit(d, src):
     d.text((X0, 1500), src, font=F(24, False), fill=SUB)

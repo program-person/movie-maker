@@ -2,7 +2,7 @@
 
 台本 JSON から、ずんだもん音声（VOICEVOX）の縦型解説動画を生成する Python＋ffmpeg のパイプライン。
 
-最終更新：2026/9/28（JST）
+最終更新：2026/9/29（JST）
 
 ---
 
@@ -12,8 +12,8 @@
 |---|---|---|
 | 1 | 台本 JSON のスキーマ（Pydantic） | 実装済み |
 | 2 | 縦切り：hook / list の2型で JSON → 動画 | 実装済み・チャット環境で実行確認（2026/9/28） |
-| 3 | 残り5型（tier / bars / price / cards / end）を追加し、legacy の Opus 5.5 縦型動画を JSON だけで再現 | **次はここ** |
-| 4 | 自動チェック（長さ・音量・字幕はみ出し・行頭禁則・speak の英字など） | 未着手 |
+| 3 | 残り5型（tier / bars / price / cards / end）を追加し、legacy の Opus 5.5 縦型動画を JSON だけで再現 | 実装済み・legacy と全シーン画素一致を確認（2026/9/29） |
+| 4 | 自動チェック（長さ・音量・字幕はみ出し・行頭禁則・speak の英字など） | **次はここ** |
 | 5 | skill 化（SKILL.md に台本の書き方・セットアップ・分割描画の手順） | 未着手 |
 | 6 | Windows 対応（音声合成を CORE / VOICEVOX アプリの HTTP API で差し替え可能に） | 未着手 |
 | 7 | （任意）立ち絵：口パク・まばたき・表情 | 未着手 |
@@ -33,7 +33,9 @@
 | draw.py | 描画の共通部品（色・フォント・イージング・折り返し・見出し・字幕・クレジット） |
 | scenes.py | シーン型ごとの描画関数と `RENDERERS = {type: 関数}` の対応表 |
 | bgm.py | numpy で BGM を生成。`python3 bgm.py <秒数> <出力wav>` |
-| samples/ | 台本サンプル（opus55_slice.json：hook＋list） |
+| samples/ | 台本サンプル（opus55_slice.json：hook＋list、opus55_full.json：全7型・9シーン） |
+| tests/compare_legacy.py | legacy と新描画を同じ cue で全コマ画素比較（ステップ3の合格判定） |
+| tests/schema_negative.py | わざと壊した台本21件がスキーマで弾かれるか |
 | legacy/ | 旧試作（手書きシーン版）。ステップ3の配置・数値の参照元。make_vertical.py は make_video.py を import する |
 
 生成物（git 管理外）：`vv/`（VOICEVOX 一式、約100MB）、`build/<台本名>/`（音声・シーン動画・中間ファイル）。
@@ -50,6 +52,10 @@ python3 build.py scene   台本.json <番号>       # シーン1つを描画（1
 python3 build.py finish  台本.json <出力.mp4>   # 結合＋声＋BGM
 python3 build.py all     台本.json <出力.mp4>   # 短い台本なら一括
 python3 build.py preview 台本.json <番号> <秒> <出力.png>
+
+python3 tests/schema_negative.py                                   # スキーマの異常系
+python3 tests/compare_legacy.py samples/opus55_full.json <新> <旧>  # 仮の声（全セリフ3秒）で全コマ比較
+python3 tests/compare_legacy.py … --real --step 5                   # 合成済みの実際の長さで、5コマおき
 ```
 
 チャット環境はセッションごとにリセットされるので、毎回 `setup.sh` から。
@@ -77,6 +83,8 @@ python3 build.py preview 台本.json <番号> <秒> <出力.png>
 - `sources` は1件以上必須（URL 形式を検証）。
 - 各シーンは `lines: [{"text": 字幕, "speak": 読み上げ}]` を1つ以上持つ。**speak は省略不可**（字幕と同じ文でも書く）。英語の固有名詞は speak 側をカタカナに。
 - `cue` は「lines の何番目のセリフの開始に合わせて表示するか」（0始まり）。範囲外はエラー。
+- `cue` を持つ要素はすべて任意の `delay`（秒、0〜5、既定0）を持てる。表示時刻 = cue のセリフ開始 + delay。
+- 色は名前で指定：`fg`（白）/ `sub`（薄い灰）/ `acc`（オレンジ）/ `warn`（黄）/ `gray`（濃い灰）/ `blue`。実際の色は draw.py の `PALETTE`。
 - シーンの `credit` を書くと、そのシーンだけ meta.credit を上書き。
 
 hook（つかみ）
@@ -86,7 +94,7 @@ hook（つかみ）
 | title | str 1〜2個 | 大きいアクセント色の行 |
 | lead | str | 白い中サイズの行（1.2秒で表示、描画側で固定） |
 | big | str | 一番強い情報（2.6秒でポップ表示、描画側で固定） |
-| ask | {text, cue} 任意 | 「何が変わった？」など |
+| ask | {text, cue, delay?} 任意 | 「何が変わった？」など |
 
 list（箇条書き・注意点）
 
@@ -95,14 +103,46 @@ list（箇条書き・注意点）
 | num | "05" 形式 | 見出し番号 |
 | title | str | 見出し |
 | style | "normal" / "warn" | warn は「!」＋黄色 |
-| items | 1〜3個 {main, note?, cue} | main は `\n` で手動改行可 |
+| items | 1〜3個 {main, note?, cue, delay?} | main は `\n` で手動改行可 |
 
-ステップ3で追加する型の候補パラメータ（未確定）
-- tier：intro_text, tiers[{name, desc, color}]
-- bars：legend[{name, color}], rows[{label, sublabel, values[], cue}]
-- price：intro_text, rows[{name, old, new, pct, cue}], summary_lines[], note
-- cards：items[{big, mid, rest, cue}]
-- end：lines[{text, size, color, delay}]
+tier / bars / price / cards は list と同じく `num`（"01" 形式）と `title`（見出し）が必須。
+
+tier（位置づけ）
+
+| キー | 型 | 説明 |
+|---|---|---|
+| intro | {text, cue, delay?} 任意 | 見出し下の小さい説明 |
+| tiers | 2〜3個 {name, desc, color, highlight?, cue, delay?} | 上から順。間に ▲ が入る。highlight=true は枠が横幅いっぱい |
+
+bars（棒グラフ）
+
+| キー | 型 | 説明 |
+|---|---|---|
+| legend | 1〜3個 {name, color} | 系列。color が "acc" の系列だけ数値もオレンジ |
+| rows | 1〜3個 {label, sublabel?, values, cue, delay?} | values は legend と同数・0〜max。棒は cue の0.2秒後から1.2秒で伸びる |
+| max | 数値（既定100） | 棒の最大幅に当たる値 |
+| unit | 3文字まで（既定 "%"） | 数値の後ろに付く |
+
+price（料金の比較）
+
+| キー | 型 | 説明 |
+|---|---|---|
+| intro | {text, cue, delay?} 任意 | 見出し下の小さい説明 |
+| rows | 1〜3個 {name, old, new, change, cue, delay?} | 表示用の文字列。new は0.25秒、change は0.45秒遅れて出る |
+| summary | {lines: 1〜2個, cue, delay?} 任意 | オレンジの帯。1行目が大きい |
+| note | {text, cue, delay?} 任意 | 帯の下の小さい注記 |
+
+cards（数字を大きく見せる事例）
+
+| キー | 型 | 説明 |
+|---|---|---|
+| items | 1〜2個 {big, mid, rest, cue, delay?} | big は大きいオレンジの数字、mid はその右、rest は下の段。3枚目は字幕と重なるため不可 |
+
+end（締め。見出しなし）
+
+| キー | 型 | 説明 |
+|---|---|---|
+| items | 1〜5個 {text, size, color?, y, cue, delay?} | 中央揃えで y（文字の上端、200〜1250）に置く。size は30〜130 |
 
 ---
 
@@ -111,7 +151,11 @@ list（箇条書き・注意点）
 - スキーマ：型ごとに厳密な discriminated union（`type` の値で検証するクラスを切り替える）。Pydantic 2.13.5 で実行確認。
 - 描画の割り当て：`type → 描画関数` の対応表（dict）。モデルに render() を持たせる案は、検証だけしたい場面でも描画部品が必要になるため不採用。
 - タイムライン：シーンの長さを先にフレーム数に丸めてから開始時刻を積む。映像と声の位置が一致する（旧版は最大0.1秒ずれる可能性があった）。
-- 型を追加する手順：schema.py にモデルを書いて `Scene` の Union に追加 → scenes.py に関数を書いて `RENDERERS` に登録。
+- 型を追加する手順：schema.py にモデルを書いて `Scene` の Union に追加し、`timed()` で cue を持つ要素を返す（範囲チェックは共通） → scenes.py に関数を書いて `RENDERERS` に登録。
+- 色：台本では名前で指定（色コードは不可）。打ち間違いをスキーマで弾け、色味の変更が draw.py の1か所で済むため（2026/9/29、ひが選択）。
+- セリフ開始からのずらし：要素ごとの任意 `delay`（2026/9/29、ひが選択）。描画側の固定値は、hook の lead/big、bars の棒、price の new/change のように型の演出として決まっているものだけ。
+- 再現の判定：legacy の描画関数と同じ cue を渡して全コマの画素差分がゼロであること（2026/9/29、ひが選択）。仮の声の長さ（全セリフ3秒）で全コマ、実際の長さで5コマおきを確認済み。
+- end は配置が不規則（行間がそろっていない）ため、y と size を台本で直接指定する形にした。
 
 ---
 
@@ -128,7 +172,9 @@ list（箇条書き・注意点）
 
 - GitHub API の回数制限（共有 IP）で公式ダウンローダーが失敗する → setup.sh はリリースの直接 URL を使う。
 - 1コマンド300秒で打ち切られ、`nohup … &` でも止まる → シーン単位で `build.py scene` を分けて実行。
-- 描画速度：list シーン 20.9秒の描画に44秒（実時間の約2.1倍）。1分を超えるシーンは300秒に近づく（原因未調査・要検証）。
+- 描画速度：実時間の約1.3〜2.2倍（2026/9/29 の実測。list 20.3秒 → 44秒、bars 20.7秒 → 31秒、end 9.5秒 → 13秒）。1分を超えるシーンは300秒に近づく（原因未調査・要検証）。
+- finish の `-shortest` で最後の1コマが落ちる：AAC 化した音声が映像より約0.3ミリ秒短くなるため（opus55_full：計算 4222 コマ → 出力 4221 コマ）。落ちるのはフェード終わりのほぼ黒いコマで見た目の影響はないが、ステップ4の長さチェックでは1コマの差を許容するか、`-shortest` を外すか決める必要あり（未対応）。
+- 音量：opus55_full（140.7秒）は平均 −23.9dB、最大 −0.4dB。最大値が alimiter の上限（0.95 ≒ −0.45dB）に張り付いており、サンプル（最大 −3.0dB）より高い。音割れの判定はしていない（要検証、ステップ4で基準を決める）。
 - 読み間違い：「C言語」→「スィー言語」と読まれた（「しー言語」に）。`voice` の kana 出力で必ず確認。「AI」は「エエアイ」で問題なし。
 - VOICEVOX の出力は冒頭に約0.1秒強の無音がある（声の実際の開始は cue の約0.14秒後）。
 - bgm.py：動画の長さが1小節（2.727秒）の倍数をわずかに超えると落ちていた → エンベロープとフェードの長さを区間長で頭打ちにして修正済み。
@@ -162,3 +208,4 @@ list（箇条書き・注意点）
 - Windows の VOICEVOX アプリを HTTP API（localhost:50021 想定）で呼べるか。
 - skill に同梱できるファイル容量の上限。
 - 空白だけの文字列はスキーマを通ってしまう／画面からのはみ出しは未検査（ステップ4で対応）。
+- opus55_full.json の sources は Anthropic 公式の1件だけ。注意点シーンの出典（Artificial Analysis、Wccftech 経由）の URL が入っていない。また各 URL が実在するかも未確認（事実確認は人が行う範囲）。
