@@ -13,8 +13,8 @@
 | 1 | 台本 JSON のスキーマ（Pydantic） | 実装済み |
 | 2 | 縦切り：hook / list の2型で JSON → 動画 | 実装済み・チャット環境で実行確認（2026/9/28） |
 | 3 | 残り5型（tier / bars / price / cards / end）を追加し、legacy の Opus 5.5 縦型動画を JSON だけで再現 | 実装済み・legacy と全シーン画素一致を確認（2026/9/29） |
-| 4 | 自動チェック（長さ・音量・字幕はみ出し・行頭禁則・speak の英字など） | **次はここ** |
-| 5 | skill 化（SKILL.md に台本の書き方・セットアップ・分割描画の手順） | 未着手 |
+| 4 | 自動チェック（長さ・音量・字幕はみ出し・行頭禁則・speak の英字など） | 実装済み・チャット環境で実行確認（2026/9/29） |
+| 5 | skill 化（SKILL.md に台本の書き方・セットアップ・分割描画の手順） | **次はここ** |
 | 6 | Windows 対応（音声合成を CORE / VOICEVOX アプリの HTTP API で差し替え可能に） | 未着手 |
 | 7 | （任意）立ち絵：口パク・まばたき・表情 | 未着手 |
 
@@ -35,7 +35,10 @@
 | bgm.py | numpy で BGM を生成。`python3 bgm.py <秒数> <出力wav>` |
 | samples/ | 台本サンプル（opus55_slice.json：hook＋list、opus55_full.json：全7型・9シーン） |
 | tests/compare_legacy.py | legacy と新描画を同じ cue で全コマ画素比較（ステップ3の合格判定） |
-| tests/schema_negative.py | わざと壊した台本21件がスキーマで弾かれるか |
+| lint.py | 描画前チェック（はみ出し・重なり・枠からのはみ出し・行頭禁則・speak の英字）。`check` / `voice` / `all` から自動で呼ばれる |
+| tests/schema_negative.py | わざと壊した台本26件がスキーマで弾かれるか |
+| tests/lint_negative.py | わざと壊した台本12件を lint が見つけるか |
+| tests/verify_negative.py | 完成 mp4 をわざと壊した5件を verify が見つけるか |
 | legacy/ | 旧試作（手書きシーン版）。ステップ3の配置・数値の参照元。make_vertical.py は make_video.py を import する |
 
 生成物（git 管理外）：`vv/`（VOICEVOX 一式、約100MB）、`build/<台本名>/`（音声・シーン動画・中間ファイル）。
@@ -46,14 +49,17 @@
 
 ```
 bash setup.sh
-python3 build.py check   台本.json              # 検証だけ
+python3 build.py check   台本.json              # スキーマ検証＋描画前チェック（lint）
 python3 build.py voice   台本.json              # 合成し、読みのカナを表示 → 目で確認
 python3 build.py scene   台本.json <番号>       # シーン1つを描画（1コマンド300秒制限のため分割）
-python3 build.py finish  台本.json <出力.mp4>   # 結合＋声＋BGM
+python3 build.py finish  台本.json <出力.mp4>   # 結合＋声＋BGM＋音量調整 → 最後に verify
+python3 build.py verify  台本.json <出力.mp4>   # 描画後チェック（形式・コマ数・音声の長さ・音量）
 python3 build.py all     台本.json <出力.mp4>   # 短い台本なら一括
 python3 build.py preview 台本.json <番号> <秒> <出力.png>
 
 python3 tests/schema_negative.py                                   # スキーマの異常系
+python3 tests/lint_negative.py                                     # 描画前チェックの異常系
+python3 tests/verify_negative.py 台本.json 完成.mp4                 # 描画後チェックの異常系（完成品が必要）
 python3 tests/compare_legacy.py samples/opus55_full.json <新> <旧>  # 仮の声（全セリフ3秒）で全コマ比較
 python3 tests/compare_legacy.py … --real --step 5                   # 合成済みの実際の長さで、5コマおき
 ```
@@ -71,6 +77,7 @@ python3 tests/compare_legacy.py … --real --step 5                   # 合成�
     "title": "…",
     "format": "vertical",
     "voice": {"engine": "core", "style_id": 3, "speed": 1.25},
+    "audio": {"lufs": -14.0, "true_peak": -1.0},
     "credit": "出典：…（画面下に出す表記）",
     "sources": [{"label": "…", "url": "https://…"}]
   },
@@ -81,6 +88,8 @@ python3 tests/compare_legacy.py … --real --step 5                   # 合成�
 共通ルール
 - 定義にないキーはエラー（`extra="forbid"`）。打ち間違い検出のため。
 - `sources` は1件以上必須（URL 形式を検証）。
+- 空白（改行・全角スペース含む）だけの文字列はエラー。
+- `meta.audio` は省略可（既定 −14 LUFS / −1.0 dBTP）。finish がこの目標に合わせ、verify が ±1.0 LU・上限以下かを確かめる。
 - 各シーンは `lines: [{"text": 字幕, "speak": 読み上げ}]` を1つ以上持つ。**speak は省略不可**（字幕と同じ文でも書く）。英語の固有名詞は speak 側をカタカナに。
 - `cue` は「lines の何番目のセリフの開始に合わせて表示するか」（0始まり）。範囲外はエラー。
 - `cue` を持つ要素はすべて任意の `delay`（秒、0〜5、既定0）を持てる。表示時刻 = cue のセリフ開始 + delay。
@@ -156,6 +165,10 @@ end（締め。見出しなし）
 - セリフ開始からのずらし：要素ごとの任意 `delay`（2026/9/29、ひが選択）。描画側の固定値は、hook の lead/big、bars の棒、price の new/change のように型の演出として決まっているものだけ。
 - 再現の判定：legacy の描画関数と同じ cue を渡して全コマの画素差分がゼロであること（2026/9/29、ひが選択）。仮の声の長さ（全セリフ3秒）で全コマ、実際の長さで5コマおきを確認済み。
 - end は配置が不規則（行間がそろっていない）ため、y と size を台本で直接指定する形にした。
+- 描画前チェック（2026/9/29、ひが選択）：描画関数は変えず、ImageDraw の代わりに記録係（lint.Recorder）を渡して、描いた文字・枠の外接矩形で判定する。どの要素が原因かを名指しできるため、画像の画素で調べる案より優先した。全要素が出そろった状態（t=1e4）で判定する。
+- lint の重さ：はみ出し・重なり・枠またぎはエラー（止める）、行頭禁則・speak の英字は警告（「AI」のようにそのままで正しく読まれる英字があるため）。許可する英字は lint.SPEAK_OK。
+- 音量（2026/9/29、ひが選択）：finish で loudnorm を2パス（1回目で測定→2回目に反映）。目標は −14 LUFS / −1.0 dBTP。TikTok は公式の数値を出しておらず、−14 LUFS・−1 dBTP は一般的な目安（要検証）。AAC でピークが約0.2dB上がるので loudnorm には上限より0.5dB低い値を渡す（build.TP_MARGIN）。
+- 1コマ落ち（2026/9/29、ひが選択）：finish の `-shortest` を外し、verify でコマ数の完全一致を確かめる。
 
 ---
 
@@ -173,8 +186,9 @@ end（締め。見出しなし）
 - GitHub API の回数制限（共有 IP）で公式ダウンローダーが失敗する → setup.sh はリリースの直接 URL を使う。
 - 1コマンド300秒で打ち切られ、`nohup … &` でも止まる → シーン単位で `build.py scene` を分けて実行。
 - 描画速度：実時間の約1.3〜2.2倍（2026/9/29 の実測。list 20.3秒 → 44秒、bars 20.7秒 → 31秒、end 9.5秒 → 13秒）。1分を超えるシーンは300秒に近づく（原因未調査・要検証）。
-- finish の `-shortest` で最後の1コマが落ちる：AAC 化した音声が映像より約0.3ミリ秒短くなるため（opus55_full：計算 4222 コマ → 出力 4221 コマ）。落ちるのはフェード終わりのほぼ黒いコマで見た目の影響はないが、ステップ4の長さチェックでは1コマの差を許容するか、`-shortest` を外すか決める必要あり（未対応）。
-- 音量：opus55_full（140.7秒）は平均 −23.9dB、最大 −0.4dB。最大値が alimiter の上限（0.95 ≒ −0.45dB）に張り付いており、サンプル（最大 −3.0dB）より高い。音割れの判定はしていない（要検証、ステップ4で基準を決める）。
+- 以前の finish は `-shortest` で最後の1コマが落ちていた（AAC 化した音声が約0.3ミリ秒短いため）→ `-shortest` を外して解消（2026/9/29）。
+- ffprobe の音声 duration は AAC の前後の詰め物を含み、実際より長く出る（opus55_full で 140.800s、実際は 140.736s）。verify は音声を復号して長さを数える。loudnorm 後も声の位置のずれは 0ms（8kHz で相互相関を取って確認）。
+- 元のミックスは、瞬間的な山が平均より約20dB高い（−20.1 LUFS に対して −0.4 dBTP）。このため loudnorm は同じ倍率をかけるだけでは目標を満たせず、自動追従（dynamic）方式に切り替わる。声の抑揚が少し平らになる方向なので、聴いた感じは人が確認する（要検証）。
 - 読み間違い：「C言語」→「スィー言語」と読まれた（「しー言語」に）。`voice` の kana 出力で必ず確認。「AI」は「エエアイ」で問題なし。
 - VOICEVOX の出力は冒頭に約0.1秒強の無音がある（声の実際の開始は cue の約0.14秒後）。
 - bgm.py：動画の長さが1小節（2.727秒）の倍数をわずかに超えると落ちていた → エンベロープとフェードの長さを区間長で頭打ちにして修正済み。
@@ -187,7 +201,7 @@ end（締め。見出しなし）
 - 1080×1920、30fps、H.264（crf 21, preset fast）、AAC 192k。
 - 配置（縦型 SNS の UI を避ける）：本文 x 70〜940／字幕枠の下端 y=1470／出典・クレジット y 1500〜1540／y 1580 以降は何も置かない。
 - 間：最初のシーンの前 0.3秒、各シーンの前 0.45秒、セリフ間 0.22秒、シーン後 0.6秒（最後は1.2秒）。話速 1.25。
-- ミックス：声 ×1.25、BGM ×0.2、サイドチェインで声の間は BGM を下げる、alimiter 0.95。サンプル（32.8秒）の実測：平均 −24.4dB、最大 −3.0dB。
+- ミックス：声 ×1.25、BGM ×0.2、サイドチェインで声の間は BGM を下げる → loudnorm（2パス）。実測（2026/9/29）：opus55_full 140.7秒・opus55_slice 32.8秒とも −14.3 LUFS / −1.3 dBTP。
 - BGM：88BPM、Cmaj7→G→Am7→Fmaj7、パッド・ベース・アルペジオ・軽いリズム。
 
 ---
@@ -207,5 +221,7 @@ end（締め。見出しなし）
 - TikTok 実機で字幕などが UI にかぶらないか。
 - Windows の VOICEVOX アプリを HTTP API（localhost:50021 想定）で呼べるか。
 - skill に同梱できるファイル容量の上限。
-- 空白だけの文字列はスキーマを通ってしまう／画面からのはみ出しは未検査（ステップ4で対応）。
+- lint の安全範囲の上端 y=150 は仮の値（縦型SNSの上部タブを避ける目安）。実機で未確認。
+- lint が見ていないもの：出てくる途中（フェード・スライド中）の重なり／枠どうしの重なり／文字が別の枠の内側に完全に入り込む場合。
+- loudnorm 後の聴こえ方（抑揚の平らさ）は未聴取。
 - opus55_full.json の sources は Anthropic 公式の1件だけ。注意点シーンの出典（Artificial Analysis、Wccftech 経由）の URL が入っていない。また各 URL が実在するかも未確認（事実確認は人が行う範囲）。

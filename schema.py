@@ -6,12 +6,29 @@ price（料金の比較）／cards（数字を大きく見せる事例）／end�
 """
 from typing import Annotated, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
+
+
+def _blank(v) -> bool:
+    """空白（改行・全角スペース含む）だけの文字列が入っていれば True（リストの中も見る）"""
+    if isinstance(v, str):
+        return v.strip() == ""
+    if isinstance(v, list):
+        return any(_blank(x) for x in v)
+    return False
 
 
 class Strict(BaseModel):
     # extra="forbid"：定義にないキー（打ち間違いなど）があったらエラーにする
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("*", mode="after")
+    @classmethod
+    def no_blank(cls, v):
+        # min_length=1 だけだと " " や "\n" が通るので、空白だけの文字列はここで弾く
+        if _blank(v):
+            raise ValueError("空白だけの文字列は使えません")
+        return v
 
 
 # ---------- 共通部品 ----------
@@ -32,10 +49,17 @@ class Voice(Strict):
     speed: float = Field(default=1.25, gt=0.5, le=2.0)
 
 
+class Audio(Strict):
+    """仕上げの音量目標。finish で loudnorm（2パス）をかけ、verify で確かめる"""
+    lufs: float = Field(default=-14.0, ge=-24, le=-8)       # ラウドネスの目標（許容 ±1.0 LU）
+    true_peak: float = Field(default=-1.0, ge=-6, le=0)     # トゥルーピークの上限（dBTP）
+
+
 class Meta(Strict):
     title: str = Field(min_length=1)
     format: Literal["vertical"] = "vertical"  # 横型は必要になったら追加
     voice: Voice = Voice()
+    audio: Audio = Audio()
     credit: str = Field(min_length=1)         # 画面下に出す出典表記（シーンごとに上書き可）
     sources: list[Source] = Field(min_length=1)  # 出典URLは必須
 

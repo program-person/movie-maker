@@ -35,6 +35,12 @@ CASES = [
     ("price の summary 3行", lambda d: S(d, 3)["summary"].update(lines=["a", "b", "c"])),
     ("cards 3枚", lambda d: S(d, 4)["items"].append(S(d, 4)["items"][0])),
     ("end の y が字幕枠に入る", lambda d: S(d, 8)["items"][0].update(y=1300)),
+    # --- ステップ4で追加 ---
+    ("空白だけの字幕", lambda d: S(d, 0)["lines"][0].update(text=" ")),
+    ("全角スペースだけの speak", lambda d: S(d, 0)["lines"][0].update(speak="\u3000")),
+    ("改行だけの main", lambda d: S(d, 5)["items"][0].update(main="\n")),
+    ("リスト内の空白（hook.title）", lambda d: S(d, 0).update(title=["Claude", "  "])),
+    ("空白だけのクレジット", lambda d: d["meta"].update(credit=" ")),
 ]
 
 ng = 0
