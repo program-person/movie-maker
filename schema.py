@@ -44,7 +44,8 @@ class Source(Strict):
 
 
 class Voice(Strict):
-    engine: Literal["core"] = "core"          # 将来 "http"（Windows の VOICEVOX アプリ）を追加予定
+    # 今は使っていない（既存の台本が通るよう残している）。実際のエンジンは実行環境で決まる（voice.engine_name）
+    engine: Literal["core"] = "core"
     style_id: int = 3                         # 3 = ずんだもんノーマル
     speed: float = Field(default=1.25, gt=0.5, le=2.0)
 

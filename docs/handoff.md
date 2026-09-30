@@ -2,7 +2,7 @@
 
 台本 JSON から、ずんだもん音声（VOICEVOX）の縦型解説動画を生成する Python＋ffmpeg のパイプライン。
 
-最終更新：2026/9/29（JST）
+最終更新：2026/9/30（JST）
 
 ---
 
@@ -15,7 +15,7 @@
 | 3 | 残り5型（tier / bars / price / cards / end）を追加し、legacy の Opus 5.5 縦型動画を JSON だけで再現 | 実装済み・legacy と全シーン画素一致を確認（2026/9/29） |
 | 4 | 自動チェック（長さ・音量・字幕はみ出し・行頭禁則・speak の英字など） | 実装済み・チャット環境で実行確認（2026/9/29） |
 | 5 | skill 化（SKILL.md に台本の書き方・セットアップ・分割描画の手順） | SKILL.md 作成・チャット環境で手順どおりに1本通して確認。ひが claude.ai の別チャットで skill を使い、台本で止まって確認を求める → 動画作成まで動いたことを確認（2026/9/30） |
-| 6 | Windows 対応（音声合成を CORE / VOICEVOX アプリの HTTP API で差し替え可能に） | **次はここ**（Claude Code で進める。着手メモは 11 章） |
+| 6 | Windows 対応（音声合成を CORE / VOICEVOX アプリの HTTP API で差し替え可能に） | 実装済み・Windows の Claude Code で実行確認（2026/9/30）、変更後の Linux でも claude.ai のチャットで確認（2026/10/1） |
 | 7 | （任意）立ち絵：口パク・まばたき・表情 | 未着手 |
 
 範囲の方針：事実確認と投稿は人が行い、自動化しない。パイプラインの責任範囲は動画ファイルの生成まで。
@@ -26,23 +26,24 @@
 
 | ファイル | 役割 |
 |---|---|
-| setup.sh | VOICEVOX 一式と Python 依存を揃える。再実行すると揃っている物は飛ばす（初回約12秒、2回目約3秒） |
+| setup.sh | チャット環境（Linux）用。VOICEVOX 一式と Python 依存を揃える。再実行すると揃っている物は飛ばす（初回約12秒、2回目約3秒） |
+| setup.ps1 | Windows 用（BOM 付き UTF-8）。フォント・.venv・Python 依存を揃え、ffmpeg と VOICEVOX を確認（2回目約3秒） |
 | build.py | CLI 本体。タイムライン計算・フレーム描画・声トラック・最終合成 |
 | schema.py | 台本 JSON の Pydantic モデル。単体で `python3 schema.py 台本.json` で検証可 |
-| voice.py | VOICEVOX CORE で全セリフを合成。durations.json と kana.txt（読み確認）を出力 |
-| draw.py | 描画の共通部品（色・フォント・イージング・折り返し・見出し・字幕・クレジット） |
+| voice.py | 全セリフを合成。エンジンは実行環境で決まる（vv/ に CORE があれば core、なければ VOICEVOX の HTTP API）。durations.json と kana.txt（読み確認）を出力 |
+| draw.py | 描画の共通部品（色・フォント・イージング・折り返し・見出し・字幕・クレジット）。フォントは環境変数 → /usr/share/fonts → fonts/ の順に探す |
 | scenes.py | シーン型ごとの描画関数と `RENDERERS = {type: 関数}` の対応表 |
 | bgm.py | numpy で BGM を生成。`python3 bgm.py <秒数> <出力wav>` |
 | samples/ | 台本サンプル（opus55_slice.json：hook＋list、opus55_full.json：全7型・9シーン） |
 | tests/compare_legacy.py | legacy と新描画を同じ cue で全コマ画素比較（ステップ3の合格判定） |
 | lint.py | 描画前チェック（はみ出し・重なり・枠からのはみ出し・行頭禁則・speak の英字）。`check` / `voice` / `all` から自動で呼ばれる |
-| .claude/skills/movie-maker/ | skill 本体。SKILL.md（共通：流れ・台本の書き方）＋ references/chat.md（claude.ai）・claude-code.md（Windows、現状は台本作成まで）。Claude Code はこの場所から自動で読み込む。claude.ai にはこのフォルダを zip にしてアップロード |
+| .claude/skills/movie-maker/ | skill 本体。SKILL.md（共通：流れ・台本の書き方）＋ references/chat.md（claude.ai）・claude-code.md（Windows）。Claude Code はこの場所から自動で読み込む。claude.ai にはこのフォルダを zip にしてアップロード |
 | tests/schema_negative.py | わざと壊した台本26件がスキーマで弾かれるか |
 | tests/lint_negative.py | わざと壊した台本12件を lint が見つけるか |
 | tests/verify_negative.py | 完成 mp4 をわざと壊した5件を verify が見つけるか |
 | legacy/ | 旧試作（手書きシーン版）。ステップ3の配置・数値の参照元。make_vertical.py は make_video.py を import する |
 
-生成物（git 管理外）：`vv/`（VOICEVOX 一式、約100MB）、`build/<台本名>/`（音声・シーン動画・中間ファイル）。
+生成物（git 管理外）：`vv/`（VOICEVOX 一式、約100MB）、`build/<台本名>/`（音声・シーン動画・中間ファイル）、`fonts/`（Windows 用 Noto Sans CJK、約40MB）、`.venv/`（Windows の Python 環境）。
 
 ---
 
@@ -66,6 +67,7 @@ python3 tests/compare_legacy.py … --real --step 5                   # 合成�
 ```
 
 チャット環境はセッションごとにリセットされるので、毎回 `setup.sh` から。
+Windows では `powershell -ExecutionPolicy Bypass -File .\setup.ps1` のあと、`python3` を `.venv\Scripts\python.exe` に読み替える（VOICEVOX を起動しておく。手順は skill の references/claude-code.md）。
 `voice` の後に台本の speak や voice 設定を変えると、`scene` / `finish` は止まる（manifest.json と照合）。
 
 ---
@@ -174,6 +176,10 @@ end（締め。見出しなし）
 - skill の frontmatter は name と description だけ（claude.ai のアップロードで使える項目に限る）。description は claude.ai の上限200文字以内（現在99文字）。
 - コードの持ち込み（2026/9/30、ひが選択）：claude.ai では skill の手順で GitHub から clone する（同梱しない）。コードの更新は push だけで反映される。
 - 確認待ち（2026/9/30、ひと合意）：台本ができたら既定で止め、台本と「確認してほしい事実の一覧」を出す。依頼文に「確認なしで」などの明示があるときだけ止めない。Claude の判断では省かない。
+- Windows の音声合成（2026/9/30、ひが選択）：VOICEVOX アプリ（エンジン）の HTTP API。導入済みのアプリで済み、追加のダウンロードがいらないため。Windows 版 CORE は不採用。
+- エンジンの切り替え口（2026/9/30、ひが選択）：台本ではなく実行環境で決める（環境変数 `MOVIE_MAKER_VOICE_ENGINE`、未指定なら vv/ に CORE があれば core）。同じ台本を claude.ai と Windows の両方で使えるようにするため。`meta.voice.engine` は既存の台本を通すために残しているが、使っていない。どのエンジンで作ったかは kana.txt の先頭行に出す（manifest には入れない。エンジンが違っても wav と durations.json は同じ実行で作られるので、ずれは起きない）。
+- Windows のフォント（2026/9/30、ひが選択）：Linux と同じ Noto Sans CJK 2.004 の OTC を GitHub から取ってくる。文字幅をそろえて lint の判定を一致させるため。場所は環境変数 `MOVIE_MAKER_FONT_BOLD` / `MOVIE_MAKER_FONT_REGULAR` で変えられる。
+- Windows のセットアップ（2026/9/30、ひが選択）：setup.sh とは別に setup.ps1 を作る。Windows からは Linux 側の動作を確かめられないので、setup.sh には手を入れない。Python は `.venv` に入れる。
 
 ---
 
@@ -183,6 +189,11 @@ end（締め。見出しなし）
 - ずんだもんのスタイルID：0.vvm でノーマル=3、あまあま=1、ツンツン=7、セクシー=5。5.vvm でささやき=22、ヒソヒソ=38。
 - 出力 WAV は 24kHz / モノラル / 16bit。
 - フォント：`/usr/share/fonts/opentype/noto/NotoSansCJK-{Bold,Regular}.ttc` の index=0（JP）。
+
+Windows（setup.ps1、2026/9/30 に実行確認）
+- VOICEVOX 0.25.2（`C:\Program Files\VOICEVOX`）。画面なしのエンジン `vv-engine\run.exe` だけでも API（`http://127.0.0.1:50021`）が使える。場所は環境変数 `VOICEVOX_URL` で変えられる。
+- Python 3.14.3 の `.venv`（numpy・Pillow 12.3.0・pydantic 2.13.5）。ffmpeg 8.1.1（gyan.dev の full ビルド、winget）。
+- フォント：`fonts/NotoSansCJK-{Bold,Regular}.ttc`（notofonts/noto-cjk の Sans2.004 から取得）。
 
 ---
 
@@ -198,6 +209,10 @@ end（締め。見出しなし）
 - VOICEVOX の出力は冒頭に約0.1秒強の無音がある（声の実際の開始は cue の約0.14秒後）。
 - bgm.py：動画の長さが1小節（2.727秒）の倍数をわずかに超えると落ちていた → エンベロープとフェードの長さを区間長で頭打ちにして修正済み。
 - 字幕の改行：句読点で区切ったまとまりごとに詰める／英数字のかたまりは切らない／句読点・小さい文字を行頭に置かない。
+- Windows の Python は `subprocess.run(..., text=True)` を cp932 で読む。台本名が日本語だと ffmpeg の出力に UTF-8 のパスが混ざるので、build.py では `encoding="utf-8"` を指定した（日本語名の台本で `all` が通ることを確認、2026/9/30）。
+- Windows PowerShell 5.1 は BOM のない .ps1 を cp932 として読む → setup.ps1 は BOM 付き UTF-8。また外部コマンドの引数の中の `"` を壊すので、setup.ps1 から渡す Python コードは `'` だけで書いている。
+- Claude Code は `PYTHONIOENCODING=utf-8` を設定しているので、「⏎」などの表示では落ちない（11 章の推測は外れ）。自分の PowerShell でファイルにリダイレクトするときは未確認。
+- Windows の描画速度：実時間の約0.9〜1.4倍（2026/9/30、opus55_full の9シーン。list 20.3秒 → 28.2秒、bars 20.8秒 → 21.7秒、end 9.6秒 → 8.8秒）。finish は 141秒の動画で約30秒。
 
 ---
 
@@ -224,10 +239,10 @@ end（締め。見出しなし）
 ## 10. 未確認事項
 
 - TikTok 実機で字幕などが UI にかぶらないか。
-- Windows の VOICEVOX アプリを HTTP API（localhost:50021 想定）で呼べるか。
 - lint の安全範囲の上端 y=150 は仮の値（縦型SNSの上部タブを避ける目安）。実機で未確認。
 - lint が見ていないもの：出てくる途中（フェード・スライド中）の重なり／枠どうしの重なり／文字が別の枠の内側に完全に入り込む場合。
-- Claude Code（Windows）では動画を作れない（音声合成が Linux 用 CORE、フォントの場所が Linux 固定）。ステップ6で対応。
+- Windows（VOICEVOX 0.25.2 の HTTP API）と Linux（CORE 0.17.0）で、同じ台本でも声の長さがわずかに違う（opus55_full：Windows 141.3秒、Linux 140.7秒）。聞いた印象の差は未確認。
+- tests/compare_legacy.py は Windows では動かない（legacy/make_video.py のフォントの場所が Linux 固定のまま）。画素比較は Linux 側で行う前提。
 - opus55_full.json の sources は Anthropic 公式の1件だけ。注意点シーンの出典（Artificial Analysis、Wccftech 経由）の URL が入っていない。また各 URL が実在するかも未確認（事実確認は人が行う範囲）。
 
 ---
@@ -280,4 +295,21 @@ Windows の Claude Code から `build.py check → voice → scene → finish` �
 - Windows：samples/opus55_slice.json で `all` が通り、verify が OK。
 - Linux：push 後に claude.ai のチャット環境で、`tests/` の3本と `compare_legacy.py`（全シーン）が今まで通り通ることを確認する（Windows の Claude Code からは確かめられない）。
 - `.claude/skills/movie-maker/references/claude-code.md` を、実際に動いた手順に書き換える。
+
+### 結果（2026/9/30、Windows の Claude Code）
+
+決めたことは 5 章（2026/9/30 の4項目）。描画の分け方は、chat.md と同じくシーンごとに分け、1コマンドで描く長さを60秒以内にする。
+
+| 確認 | 結果 |
+|---|---|
+| setup.ps1 | 初回で fonts・.venv・依存を揃えて `setup OK`、2回目は約3秒で全部 skip |
+| opus55_slice で `all` | verify OK（983 コマ / 32.787s / −14.3 LUFS / −1.4 dBTP）、全体で約61秒 |
+| opus55_full で voice → scene 0〜8 → finish | verify OK（4239 コマ / 141.317s / −14.3 LUFS / −1.3 dBTP） |
+| 日本語名の台本で `all` | verify OK |
+| tests/schema_negative・lint_negative・verify_negative | 26/26・12/12・5/5 |
+| エラーの出方 | VOICEVOX 未起動・エンジン名の誤り・フォントの指定先なし で、それぞれ原因と直し方が出る |
+
+Linux 側（2026/10/1、claude.ai のチャット、ブランチ claude/handoff-chapter-11-step-6-de9fd5 の 6acf1c1）：setup.sh 正常終了、schema_negative 26/26・lint_negative 12/12、opus55_slice の `all` で verify OK（983 コマ / 32.787s / −14.3 LUFS / −1.3 dBTP、kana の先頭行は `core（voicevox_core 0.17.0）`）、verify_negative 5/5、compare_legacy で opus55_full の9シーンすべて全コマ画素一致（仮の声の長さ。`--real` は未実行）。
+
+終わりの条件はすべて満たした。
 

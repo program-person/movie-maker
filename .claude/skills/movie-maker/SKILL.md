@@ -19,7 +19,7 @@ description: ずんだもんが解説する縦型ショート動画（1080×1920
    - `/mnt/user-data` がある（claude.ai のチャット）→ `references/chat.md`
    - それ以外（Claude Code）→ `references/claude-code.md`
 2. 題材を調べ、出典の URL を集める（下の「出典」）。
-3. 台本 JSON を書き、`python3 build.py check 台本.json` を通す（スキーマ＋描画前チェック）。
+3. 台本 JSON を書き、`build.py check 台本.json` を通す（スキーマ＋描画前チェック。Python の呼び方は環境ごとの手順どおり）。
 4. **ここで止めて確認を待つ（既定）。** 台本と「確認してほしい事実の一覧」を出す。
    - 依頼文に「確認なしで」「動画まで一気に」などの明示があるときだけ、止めずに 5 へ進む。
      その場合も、同じ一覧を動画と一緒に出す。Claude の判断で止めるのを省かない。

@@ -113,7 +113,8 @@ def cmd_finish(job, out):
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(SR)
         w.writeframes(np.clip(buf[:int(total * SR)], -32768, 32767).astype(np.int16).tobytes())
     bgm = job.dir / "bgm.wav"
-    subprocess.run(["python3", str(HERE / "bgm.py"), f"{total:.3f}", str(bgm)], check=True)
+    # "python3" は Windows にないことが多いので、いま動いている Python で呼ぶ
+    subprocess.run([sys.executable, str(HERE / "bgm.py"), f"{total:.3f}", str(bgm)], check=True)
     segs = job.dir / "segs.txt"
     segs.write_text("".join(f"file 'seg_{s}.mp4'\n" for s in range(len(tl))))
     vid = job.dir / "video_only.mp4"
@@ -124,7 +125,7 @@ def cmd_finish(job, out):
     ln = f"loudnorm=I={au.lufs}:TP={au.true_peak - TP_MARGIN}:LRA=11"
     r = subprocess.run(["ffmpeg", "-nostats", "-i", str(vt), "-i", str(bgm), "-filter_complex",
                         f"{mix(0, 1)},{ln}:print_format=json[a]", "-map", "[a]", "-f", "null", "-"],
-                       capture_output=True, text=True, check=True)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
     m = json.loads(r.stderr[r.stderr.rindex("{"):r.stderr.rindex("}") + 1])
     ln += (f":measured_I={m['input_i']}:measured_TP={m['input_tp']}:measured_LRA={m['input_lra']}"
            f":measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true")
@@ -141,7 +142,7 @@ def cmd_finish(job, out):
 def _probe(out, stream):
     r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", stream, "-show_entries",
                         "stream=width,height,r_frame_rate,nb_frames,duration", "-of", "json", out],
-                       capture_output=True, text=True, check=True)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
     st = json.loads(r.stdout)["streams"]
     return st[0] if st else None
 
@@ -175,7 +176,7 @@ def cmd_verify(job, out):
         if abs(alen - total) > 0.05:
             errors.append(f"音声の長さ {alen:.3f}s（計算 {total:.3f}s、許容 ±0.05s）")
         r = subprocess.run(["ffmpeg", "-nostats", "-i", out, "-map", "a:0", "-af", "ebur128=peak=true",
-                            "-f", "null", "-"], capture_output=True, text=True, check=True)
+                            "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
         summ = r.stderr[r.stderr.rindex("Summary:"):]
         lufs = float(summ.split("I:")[1].split()[0])
         tp = float(summ.split("Peak:")[1].split()[0])

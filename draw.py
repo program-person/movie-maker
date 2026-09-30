@@ -1,5 +1,6 @@
 """縦型（1080x1920）描画の共通部品。make_video.py / make_vertical.py から移植"""
-import re
+import os, re, sys
+from pathlib import Path
 from PIL import ImageFont
 
 W, H, FPS = 1080, 1920, 30
@@ -14,13 +15,31 @@ BLUE = (106, 155, 204)
 PALETTE = {"fg": FG, "sub": SUB, "acc": ACC, "warn": WARN, "gray": GRAY, "blue": BLUE}  # 台本の color 名 → RGB
 X0, X1 = 70, 940            # 右側は TikTok のボタン列を避ける
 
-FONT_B = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
-FONT_R = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+def _font_path(weight):
+    """Noto Sans CJK の場所。環境変数 → Linux のシステム → fonts/（Windows は setup.ps1 がここに置く）の順。
+    どの環境でも同じフォントにそろえるのは、文字幅が変わると lint の判定と見た目がずれるため"""
+    env_name = f"MOVIE_MAKER_FONT_{weight.upper()}"
+    env = os.environ.get(env_name)
+    if env:
+        if not Path(env).is_file():
+            sys.exit(f"{env_name}={env} のフォントファイルがありません")
+        return env
+    name = f"NotoSansCJK-{weight}.ttc"
+    for p in (Path("/usr/share/fonts/opentype/noto") / name, Path(__file__).parent / "fonts" / name):
+        if p.exists():
+            return str(p)
+    sys.exit(f"フォント {name} が見つかりません。Windows なら setup.ps1 を実行するか、"
+             f"環境変数 MOVIE_MAKER_FONT_{weight.upper()} にパスを指定してください。")
+
+_paths = {}
 _cache = {}
 def F(size, bold=True):
     k = (size, bold)
     if k not in _cache:
-        _cache[k] = ImageFont.truetype(FONT_B if bold else FONT_R, size, index=0)  # index 0 = JP
+        weight = "Bold" if bold else "Regular"
+        if weight not in _paths:
+            _paths[weight] = _font_path(weight)
+        _cache[k] = ImageFont.truetype(_paths[weight], size, index=0)  # index 0 = JP
     return _cache[k]
 
 def clamp(x): return max(0.0, min(1.0, x))
