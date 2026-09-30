@@ -15,7 +15,7 @@
 | 3 | 残り5型（tier / bars / price / cards / end）を追加し、legacy の Opus 5.5 縦型動画を JSON だけで再現 | 実装済み・legacy と全シーン画素一致を確認（2026/9/29） |
 | 4 | 自動チェック（長さ・音量・字幕はみ出し・行頭禁則・speak の英字など） | 実装済み・チャット環境で実行確認（2026/9/29） |
 | 5 | skill 化（SKILL.md に台本の書き方・セットアップ・分割描画の手順） | SKILL.md 作成・チャット環境で手順どおりに1本通して確認。ひが claude.ai の別チャットで skill を使い、台本で止まって確認を求める → 動画作成まで動いたことを確認（2026/9/30） |
-| 6 | Windows 対応（音声合成を CORE / VOICEVOX アプリの HTTP API で差し替え可能に） | 実装済み・Windows の Claude Code で実行確認（2026/9/30）。変更後の Linux での確認は未実行（11 章の終わりの条件） |
+| 6 | Windows 対応（音声合成を CORE / VOICEVOX アプリの HTTP API で差し替え可能に） | 実装済み・Windows の Claude Code で実行確認（2026/9/30）、変更後の Linux でも claude.ai のチャットで確認（2026/10/1） |
 | 7 | （任意）立ち絵：口パク・まばたき・表情 | 未着手 |
 
 範囲の方針：事実確認と投稿は人が行い、自動化しない。パイプラインの責任範囲は動画ファイルの生成まで。
@@ -241,7 +241,6 @@ Windows（setup.ps1、2026/9/30 に実行確認）
 - TikTok 実機で字幕などが UI にかぶらないか。
 - lint の安全範囲の上端 y=150 は仮の値（縦型SNSの上部タブを避ける目安）。実機で未確認。
 - lint が見ていないもの：出てくる途中（フェード・スライド中）の重なり／枠どうしの重なり／文字が別の枠の内側に完全に入り込む場合。
-- ステップ6の変更（voice.py・draw.py・build.py）のあと、Linux のチャット環境で動くか（11 章の終わりの条件）。
 - Windows（VOICEVOX 0.25.2 の HTTP API）と Linux（CORE 0.17.0）で、同じ台本でも声の長さがわずかに違う（opus55_full：Windows 141.3秒、Linux 140.7秒）。聞いた印象の差は未確認。
 - tests/compare_legacy.py は Windows では動かない（legacy/make_video.py のフォントの場所が Linux 固定のまま）。画素比較は Linux 側で行う前提。
 - opus55_full.json の sources は Anthropic 公式の1件だけ。注意点シーンの出典（Artificial Analysis、Wccftech 経由）の URL が入っていない。また各 URL が実在するかも未確認（事実確認は人が行う範囲）。
@@ -310,5 +309,7 @@ Windows の Claude Code から `build.py check → voice → scene → finish` �
 | tests/schema_negative・lint_negative・verify_negative | 26/26・12/12・5/5 |
 | エラーの出方 | VOICEVOX 未起動・エンジン名の誤り・フォントの指定先なし で、それぞれ原因と直し方が出る |
 
-残り（未実行）：Linux 側の確認（上の「終わりの条件」の2つ目）。push 後に claude.ai のチャットで行う。
+Linux 側（2026/10/1、claude.ai のチャット、ブランチ claude/handoff-chapter-11-step-6-de9fd5 の 6acf1c1）：setup.sh 正常終了、schema_negative 26/26・lint_negative 12/12、opus55_slice の `all` で verify OK（983 コマ / 32.787s / −14.3 LUFS / −1.3 dBTP、kana の先頭行は `core（voicevox_core 0.17.0）`）、verify_negative 5/5、compare_legacy で opus55_full の9シーンすべて全コマ画素一致（仮の声の長さ。`--real` は未実行）。
+
+終わりの条件はすべて満たした。
 
