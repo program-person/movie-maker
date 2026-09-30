@@ -15,7 +15,7 @@
 | 3 | 残り5型（tier / bars / price / cards / end）を追加し、legacy の Opus 5.5 縦型動画を JSON だけで再現 | 実装済み・legacy と全シーン画素一致を確認（2026/9/29） |
 | 4 | 自動チェック（長さ・音量・字幕はみ出し・行頭禁則・speak の英字など） | 実装済み・チャット環境で実行確認（2026/9/29） |
 | 5 | skill 化（SKILL.md に台本の書き方・セットアップ・分割描画の手順） | SKILL.md 作成・チャット環境で手順どおりに1本通して確認。ひが claude.ai の別チャットで skill を使い、台本で止まって確認を求める → 動画作成まで動いたことを確認（2026/9/30） |
-| 6 | Windows 対応（音声合成を CORE / VOICEVOX アプリの HTTP API で差し替え可能に） | **次はここ** |
+| 6 | Windows 対応（音声合成を CORE / VOICEVOX アプリの HTTP API で差し替え可能に） | **次はここ**（Claude Code で進める。着手メモは 11 章） |
 | 7 | （任意）立ち絵：口パク・まばたき・表情 | 未着手 |
 
 範囲の方針：事実確認と投稿は人が行い、自動化しない。パイプラインの責任範囲は動画ファイルの生成まで。
@@ -225,8 +225,59 @@ end（締め。見出しなし）
 
 - TikTok 実機で字幕などが UI にかぶらないか。
 - Windows の VOICEVOX アプリを HTTP API（localhost:50021 想定）で呼べるか。
-- skill に同梱できるファイル容量の上限。
 - lint の安全範囲の上端 y=150 は仮の値（縦型SNSの上部タブを避ける目安）。実機で未確認。
 - lint が見ていないもの：出てくる途中（フェード・スライド中）の重なり／枠どうしの重なり／文字が別の枠の内側に完全に入り込む場合。
 - Claude Code（Windows）では動画を作れない（音声合成が Linux 用 CORE、フォントの場所が Linux 固定）。ステップ6で対応。
 - opus55_full.json の sources は Anthropic 公式の1件だけ。注意点シーンの出典（Artificial Analysis、Wccftech 経由）の URL が入っていない。また各 URL が実在するかも未確認（事実確認は人が行う範囲）。
+
+---
+
+## 11. ステップ6 着手メモ（Claude Code 向け、2026/9/30 作成）
+
+ステップ6は、ひの Windows PC 上の Claude Code で進める（チャットの Linux 環境では Windows・VOICEVOX アプリでの確認ができないため）。
+このメモは、チャット側で Linux 環境からコードを読んで洗い出したもの。**Windows では一つも実行していない。**
+
+### 目的
+
+Windows の Claude Code から `build.py check → voice → scene → finish` を通し、verify が OK の mp4 を作れるようにする。
+チャット環境（Linux・VOICEVOX CORE）で今の動作が壊れないこと。
+
+### コードから見つけた Linux 依存（未実行・要確認）
+
+| 場所 | 内容 | Windows で起きそうなこと |
+|---|---|---|
+| voice.py | Linux 用の VOICEVOX CORE（`.so`、manylinux の wheel）を読み込む | 動かない。音声合成の差し替えが必要 |
+| setup.sh | bash スクリプト。Linux 用の一式を取ってくる | そのままでは使えない |
+| draw.py | フォントの場所が `/usr/share/fonts/opentype/noto/…` 固定 | 描画・lint・preview がすべて止まる |
+| build.py の BGM 生成 | `subprocess.run(["python3", …bgm.py…])` | Windows では `python3` というコマンドがないことが多い。`sys.executable` にすれば環境に依らない |
+| lint.py など | 表示に「⏎」などを使う | 出力が cp932（Windows の日本語の既定の文字コード）だと表示で落ちる可能性（推測） |
+| ffmpeg / ffprobe | PATH から呼ぶ | 入っていなければ入れる。ebur128・loudnorm・sidechaincompress が使えるビルドか確認 |
+
+ファイルの読み書きは、日本語を含むものは `encoding="utf-8"` 指定済み。指定のない箇所（durations.json・segs.txt）は ASCII だけなので影響しない見込み。
+
+### 決めること（着手前にひと相談）
+
+1. 音声合成のつなぎ方
+   - VOICEVOX アプリの HTTP API（アプリを起動しておき `http://localhost:50021` の audio_query → synthesis を呼ぶ想定・要確認）
+   - Windows 用の VOICEVOX CORE を入れる（Windows 版の wheel・ランタイムがあるか要確認）
+   - schema.py の `meta.voice.engine` は今 `"core"` だけ。差し替え口として値を足す想定（コメントに `"http"` 予定と書いてある）
+2. フォント
+   - Noto Sans CJK（OFL ライセンスで再配布可）を取ってきて使う → Linux と同じ見た目・同じ文字幅。legacy との画素比較・lint の結果もそろう見込み（Pillow や FreeType の版の違いで細かくずれる可能性はある・要検証）
+   - Windows に入っているフォント（游ゴシックなど）を使う → 手軽だが文字幅が変わり、lint の結果も画素比較も Linux と一致しなくなる
+   - どちらにしても、場所を環境変数か設定で変えられるようにする
+3. セットアップの方法：setup.sh の Windows 版（PowerShell）を作るか、Python で書き直して両環境で共通にするか
+4. 描画の分け方：Claude Code のコマンドは既定2分・上限10分で時間切れになり、時間切れのコマンドは裏で続く（公式ドキュメント tools-reference、2026/9/30 確認）。シーンごとに分けるかを決める
+
+### 着手前に手元で確かめること
+
+- VOICEVOX アプリが起動し、ずんだもんで喋るか（2026/9/7 に導入済みとの報告あり。現在の状態は未確認）
+- アプリ起動中にブラウザで `http://localhost:50021/docs` が開けるか（API の説明ページ・要確認）
+- `ffmpeg -version`・`python --version`（または `py --version`）の結果
+- Claude Code のシェルが PowerShell か Git Bash か
+
+### 終わりの条件（案）
+
+- Windows：samples/opus55_slice.json で `all` が通り、verify が OK。
+- Linux：push 後に claude.ai のチャット環境で、`tests/` の3本と `compare_legacy.py`（全シーン）が今まで通り通ることを確認する（Windows の Claude Code からは確かめられない）。
+- `.claude/skills/movie-maker/references/claude-code.md` を、実際に動いた手順に書き換える。
+
